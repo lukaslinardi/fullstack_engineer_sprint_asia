@@ -9,44 +9,41 @@ import (
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	"github.com/lukaslinardi/fullstack_engineer_sprint_asia/types"
+	"github.com/rs/cors"
 )
 
-type TaskRequest struct {
-	TaskName string `json:"task_name"`
-	ParentId *int   `json:"parent_id"`
-}
-
-type TaskResponse struct {
-	ID         int       `json:"id" db:"id"`
-	TaskName   string    `json:"task_name" db:"task_name"`
-	TaskStatus int       `json:"task_status" db:"task_status"`
-	CreatedAt  time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
-}
-
 func main() {
-	//connect to database
+	// connect to database
 	db, err := sql.Open("postgres", "postgres://postgres:postgres@localhost/postgres?sslmode=disable")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	//create the table if it doesn't exist
-	// _, err = db.Exec("CREATE TABLE IF NOT EXISTS  (id SERIAL PRIMARY KEY, name TEXT, email TEXT)") if err != nil {
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},  // Include PUT method
+		AllowedHeaders:   []string{"Content-Type", "Authorization"}, // Add any custom headers you need
+		AllowCredentials: true,
+		Debug:            true,
+	})
+
+	// create the table if it doesn't exist _, err = db.Exec("CREATE TABLE IF NOT EXISTS  (id SERIAL PRIMARY KEY, name TEXT, email TEXT)") if err != nil {
 	// 	log.Fatal(err)
 	// }
 
-	//create router
+	// create router
 	router := mux.NewRouter()
-	router.HandleFunc("/task", getTasks(db)).Methods("GET")
-	//	router.HandleFunc("/users/{id}", getTask(db)).Methods("GET")
-	router.HandleFunc("/task", createTask(db)).Methods("POST")
-	// router.HandleFunc("/users/{id}", updateTask(db)).Methods("PUT")
-	// router.HandleFunc("/users/{id}", deleteTask(db)).Methods("DELETE")
+	router.HandleFunc("/tasks", getTasks(db)).Methods("GET")
+	router.HandleFunc("/sub-tasks/{id}", createSubTask(db)).Methods("POST")
+	router.HandleFunc("/tasks", createTask(db)).Methods("POST")
+	router.HandleFunc("/tasks/{id}", updateTask(db)).Methods("PUT")
+	router.HandleFunc("/update-tasks/{id}", updateTaskStatus(db)).Methods("PUT")
+	router.HandleFunc("/tasks/{id}", deleteTask(db)).Methods("DELETE")
 
-	//start server
-	log.Fatal(http.ListenAndServe(":8000", jsonContentTypeMiddleware(router)))
+	// start server
+	log.Fatal(http.ListenAndServe(":8000", c.Handler(jsonContentTypeMiddleware(router))))
 }
 
 func jsonContentTypeMiddleware(next http.Handler) http.Handler {
@@ -59,16 +56,36 @@ func jsonContentTypeMiddleware(next http.Handler) http.Handler {
 // get all task
 func getTasks(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT id, task_name, task_status, created_at, updated_at FROM task")
+		//	rows, err := db.Query("SELECT id, task_name, task_status, deadline_task, parent_id, created_at, updated_at FROM task")
+		rows, err := db.Query(`SELECT
+          t1.id,
+          t1.task_name,
+          t1.task_status,
+          t1.deadline_task,
+          t1.parent_id,
+          tmp.completion_percentage * 100,
+          t1.created_at,
+          t1.updated_at
+        FROM task t1
+        LEFT JOIN LATERAL (
+          SELECT
+            (
+              SELECT count(t3.*) FROM task t3
+              WHERE t3.task_status = 2 AND t3.parent_id = t1.id
+            )::float / NULLIF(count(t2.*), 0) as completion_percentage
+          FROM task t2
+          WHERE t2.parent_id = t1.id
+        ) tmp ON true`)
 		if err != nil {
 			log.Fatal(err)
 		}
+
 		defer rows.Close()
 
-		tasks := []TaskResponse{}
+		tasks := []types.TaskResponse{}
 		for rows.Next() {
-			var t TaskResponse
-			if err := rows.Scan(&t.ID, &t.TaskName, &t.TaskStatus, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			var t types.TaskResponse
+			if err := rows.Scan(&t.ID, &t.TaskName, &t.TaskStatus, &t.DeadlineTask, &t.ParentId, &t.Percentage, &t.CreatedAt, &t.UpdatedAt); err != nil {
 				log.Fatal(err)
 			}
 			tasks = append(tasks, t)
@@ -84,78 +101,138 @@ func getTasks(db *sql.DB) http.HandlerFunc {
 // create user
 func createTask(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var t TaskRequest
+		var t types.TaskRequest
 		json.NewDecoder(r.Body).Decode(&t)
 
-		err := db.QueryRow("INSERT INTO task (task_name, task_status, parent_id, created_at) VALUES ($1, $2, $3) RETURNING id",
+		_, err := db.Exec("INSERT INTO task (task_name, task_status, deadline_task, parent_id, created_at) VALUES ($1, $2, $3, $4, $5)",
 			t.TaskName,
 			1,
+			t.DeadlineTask,
+			t.ParentId,
 			time.Now().UTC())
-
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		json.NewEncoder(w).Encode(t)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-// get user by id
-// func getTask(db *sql.DB) http.HandlerFunc {
-// 	return func(w http.ResponseWriter, r *http.Request) {
-//         vars := mux.Vars(r)
-// 		id := vars["id"]
-//
-// 		var u Task
-// 		err := db.QueryRow("SELECT * FROM users WHERE id = $1", id).Scan(&u.ID, &u.TaskName, &u.TaskStatus)
-// 		if err != nil {
-// 			w.WriteHeader(http.StatusNotFound)
-// 			return
-// 		}
-//
-// 		json.NewEncoder(w).Encode(u)
-// 	}
-// }
+func updateTask(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var t types.TaskUpdate
+		json.NewDecoder(r.Body).Decode(&t)
+		vars := mux.Vars(r)
+		id := vars["id"]
 
-//
-// // update user
-// func updateTask(db *sql.DB) http.HandlerFunc {
-// 	return func(w http.ResponseWriter, r *http.Request) {
-// 		var u Task
-// 		json.NewDecoder(r.Body).Decode(&u)
-//
-// 		vars := mux.Vars(r)
-// 		id := vars["id"]
-//
-// 		_, err := db.Exec("UPDATE users SET name = $1, email = $2 WHERE id = $3", u.Name, u.Email, id)
-// 		if err != nil {
-// 			log.Fatal(err)
-// 		}
-//
-// 		json.NewEncoder(w).Encode(u)
-// 	}
-// }
-//
-// // delete user
-// func deleteTask(db *sql.DB) http.HandlerFunc {
-// 	return func(w http.ResponseWriter, r *http.Request) {
-// 		vars := mux.Vars(r)
-// 		id := vars["id"]
-//
-// 		var u Task
-// 		err := db.QueryRow("SELECT * FROM users WHERE id = $1", id).Scan(&u.ID, &u.Name, &u.Email)
-// 		if err != nil {
-// 			w.WriteHeader(http.StatusNotFound)
-// 			return
-// 		} else {
-// 			_, err := db.Exec("DELETE FROM users WHERE id = $1", id)
-// 			if err != nil {
-// 				//todo : fix error handling
-// 				w.WriteHeader(http.StatusNotFound)
-// 				return
-// 			}
-//
-// 			json.NewEncoder(w).Encode("Task deleted")
-// 		}
-// 	}
-// }
+		_, err := db.Exec("UPDATE task SET task_name = $1, deadline_task = $2 WHERE id = $3", t.TaskName, t.DeadlineTask, id)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func updateTaskStatus(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		id := vars["id"]
+
+		var parentId *int
+
+		err := db.QueryRow("SELECT parent_id from task where id = $1", id).Scan(&parentId)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		_, err = db.Exec("UPDATE task SET task_status = 2 WHERE id = $1", id)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		rows, err := db.Query("SELECT t.task_status from task t where t.parent_id = $1", parentId)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		isAllSubTaskCompleted := true
+
+		tasks := []int{}
+		for rows.Next() {
+			var status int
+			if err := rows.Scan(&status); err != nil {
+				log.Fatal(err)
+			}
+			tasks = append(tasks, status)
+		}
+		if err := rows.Err(); err != nil {
+			log.Fatal(err)
+		}
+
+		for _, task := range tasks {
+			if task != 2 {
+				isAllSubTaskCompleted = false
+				break
+			}
+		}
+
+		if isAllSubTaskCompleted {
+			_, err := db.Exec("UPDATE task SET task_status = 2 WHERE id = $1", parentId)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func deleteTask(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		id := vars["id"]
+
+		_, err := db.Exec("DELETE FROM task WHERE id = $1", id)
+		if err != nil {
+			log.Fatal(err)
+			//			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+		//		json.NewEncoder(w).Encode("Task deleted")
+	}
+}
+
+func createSubTask(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var t types.TaskRequest
+		json.NewDecoder(r.Body).Decode(&t)
+		_, err := db.Exec("INSERT INTO task (task_name, task_status, deadline_task, parent_id, created_at) VALUES ($1, $2, $3, $4, $5)",
+			t.TaskName,
+			1,
+			t.DeadlineTask,
+			t.ParentId,
+			time.Now().UTC())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+	// return func(w http.ResponseWriter, r *http.Request) {
+	//        vars := mux.Vars(r)
+	// 	id := vars["id"]
+	//
+	// 	var u Task
+	// 	err := db.QueryRow("SELECT * FROM users WHERE id = $1", id).Scan(&u.ID, &u.TaskName, &u.TaskStatus)
+	// 	if err != nil {
+	// 		w.WriteHeader(http.StatusNotFound)
+	// 		return
+	// 	}
+	//
+	// 	json.NewEncoder(w).Encode(u)
+	// }
+}
