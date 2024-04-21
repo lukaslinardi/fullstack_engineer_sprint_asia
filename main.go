@@ -29,11 +29,7 @@ func main() {
 		Debug:            true,
 	})
 
-	// create the table if it doesn't exist _, err = db.Exec("CREATE TABLE IF NOT EXISTS  (id SERIAL PRIMARY KEY, name TEXT, email TEXT)") if err != nil {
-	// 	log.Fatal(err)
-	// }
 
-	// create router
 	router := mux.NewRouter()
 	router.HandleFunc("/tasks", getTasks(db)).Methods("GET")
 	router.HandleFunc("/sub-tasks/{id}", createSubTask(db)).Methods("POST")
@@ -42,7 +38,6 @@ func main() {
 	router.HandleFunc("/update-tasks/{id}", updateTaskStatus(db)).Methods("PUT")
 	router.HandleFunc("/tasks/{id}", deleteTask(db)).Methods("DELETE")
 
-	// start server
 	log.Fatal(http.ListenAndServe(":8000", c.Handler(jsonContentTypeMiddleware(router))))
 }
 
@@ -53,10 +48,8 @@ func jsonContentTypeMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// get all task
 func getTasks(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		//	rows, err := db.Query("SELECT id, task_name, task_status, deadline_task, parent_id, created_at, updated_at FROM task")
 		rows, err := db.Query(`SELECT
           t1.id,
           t1.task_name,
@@ -98,7 +91,6 @@ func getTasks(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// create user
 func createTask(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var t types.TaskRequest
@@ -222,17 +214,4 @@ func createSubTask(db *sql.DB) http.HandlerFunc {
 
 		w.WriteHeader(http.StatusNoContent)
 	}
-	// return func(w http.ResponseWriter, r *http.Request) {
-	//        vars := mux.Vars(r)
-	// 	id := vars["id"]
-	//
-	// 	var u Task
-	// 	err := db.QueryRow("SELECT * FROM users WHERE id = $1", id).Scan(&u.ID, &u.TaskName, &u.TaskStatus)
-	// 	if err != nil {
-	// 		w.WriteHeader(http.StatusNotFound)
-	// 		return
-	// 	}
-	//
-	// 	json.NewEncoder(w).Encode(u)
-	// }
 }
