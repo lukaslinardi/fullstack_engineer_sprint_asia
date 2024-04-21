@@ -1,19 +1,3 @@
-Postgres Container:
-
-```
-docker run \
-  --name coerhat-db \
-  --network coerhat \
-  --volume coerhat-db-data:/var/lib/postgresql/data \
-  -p 5432:5432 \
-  --rm \
-  --detach \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=coerhat \
-  postgres
-```
-
 Create Migration File
 
 Install `go-migrate`
@@ -29,4 +13,16 @@ or
 ```
 make migration/create name=alter_user_table_password_type
 make migration/create name=<migration_name>
+```
+
+Create Migration for Postgresql database:
+
+```
+migrate -source <migration_path> -database "postgres://postgres:postgres@localhost/postgres?sslmode=disable" up
+
+```
+
+for starting postgresql database:
+```
+sudo docker compose up -d
 ```
