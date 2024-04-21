@@ -8,13 +8,6 @@ https://github.com/golang-migrate/migrate
 migrate create -seq -ext=.sql -dir=./database/migrations <migration_name>
 ```
 
-or
-
-```
-make migration/create name=alter_user_table_password_type
-make migration/create name=<migration_name>
-```
-
 Create Migration for Postgresql database:
 
 ```
