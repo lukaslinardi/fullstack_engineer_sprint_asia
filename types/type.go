@@ -16,7 +16,7 @@ type TaskResponse struct {
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 	DeadlineTask time.Time `json:"deadline_task" db:"deadline_task"`
-	Percentage   *float32   `json:"completion_percentage" json:"completion_percentage"`
+	Percentage   *float32  `json:"completion_percentage" json:"completion_percentage"`
 }
 
 type TaskUpdate struct {

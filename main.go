@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"time"
+	"time" 
+    "fmt"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -116,6 +117,8 @@ func updateTask(db *sql.DB) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&t)
 		vars := mux.Vars(r)
 		id := vars["id"]
+
+        fmt.Println(t.DeadlineTask)
 
 		_, err := db.Exec("UPDATE task SET task_name = $1, deadline_task = $2 WHERE id = $3", t.TaskName, t.DeadlineTask, id)
 		if err != nil {
